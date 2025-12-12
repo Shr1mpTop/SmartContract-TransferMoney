@@ -13,7 +13,6 @@ contract TestDeposit {
 
     // 存款函数：先查询当前余额，加上存款金额，然后更新并显示新余额
     function depositMoney() public payable {
-
         uint256 currentBalance = balances[msg.sender];
         uint256 newBalance = currentBalance + msg.value;
         balances[msg.sender] = newBalance;
