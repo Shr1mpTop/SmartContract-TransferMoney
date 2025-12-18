@@ -1,13 +1,14 @@
+
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
 import "hardhat/console.sol";
 
-contract CS2MajorBetting {
+contract CS2MajorFanConsensus {
     struct Team {
         uint256 id;
         string name;
-        uint256 totalBetAmount;
+        uint256 totalVoteAmount;
         uint256 supporterCount;
     }
 
@@ -18,14 +19,14 @@ contract CS2MajorBetting {
     GameStatus public status;
     Team[] public teams;
     
-    // 记录用户在某个战队的下注金额
-    mapping(address => mapping(uint256 => uint256)) public userBets;
+    // 记录用户在某个战队的投票能量
+    mapping(address => mapping(uint256 => uint256)) public userVotes;
     
-    uint256 public totalPrizePool;
+    uint256 public totalRewardPool;
     uint256 public winningTeamId;
     uint256 public charityBalance;
 
-    event NewBet(address indexed user, uint256 teamId, uint256 amount);
+    event NewVote(address indexed user, uint256 teamId, uint256 amount);
     event GameStatusChanged(GameStatus newStatus);
     event WinnerSelected(uint256 teamId, string teamName);
     event PrizeWithdrawn(address indexed user, uint256 amount);
@@ -48,8 +49,8 @@ contract CS2MajorBetting {
         teams.push(Team(newId, _name, 0, 0));
     }
 
-    // 2. 停止投注
-    function stopBetting() public onlyOwner {
+    // 2. 停止投票
+    function stopVoting() public onlyOwner {
         status = GameStatus.Stopped;
         emit GameStatusChanged(status);
     }
@@ -59,20 +60,20 @@ contract CS2MajorBetting {
         require(status == GameStatus.Stopped, "Game must be stopped first");
         require(_teamId < teams.length, "Invalid team ID");
 
-        // 检查冠军队是否有下注额
-        if (teams[_teamId].totalBetAmount == 0) {
-            // 特殊情况：没人买这个队，进入全员退款模式
+        // 检查冠军队是否有投票额
+        if (teams[_teamId].totalVoteAmount == 0) {
+            // 特殊情况：没人投这个队，进入全员退款模式
             status = GameStatus.Refunding;
             // 退款模式下，不扣除公益金，大家原原本本拿回去
             charityBalance = 0; 
             emit GameStatusChanged(status);
-            console.log("No bets on winner. Refund mode activated.");
+            console.log("No votes on winner. Refund mode activated.");
         } else {
             // 正常情况
             status = GameStatus.Finished;
             winningTeamId = _teamId;
 
-            uint256 charityAmount = (totalPrizePool * 10) / 100;
+            uint256 charityAmount = (totalRewardPool * 10) / 100;
             charityBalance = charityAmount;
             
             emit WinnerSelected(_teamId, teams[_teamId].name);
@@ -80,18 +81,17 @@ contract CS2MajorBetting {
         }
     }
 
-    // 4. 用户提款/退款（核心修改逻辑）
-    // 注意：这里需要传入 teamId，因为在退款模式下，用户可能需要取回输掉的队伍的钱
+
     function withdraw(uint256 _teamId) public {
-        uint256 amount = userBets[msg.sender][_teamId];
+        uint256 amount = userVotes[msg.sender][_teamId];
         require(amount > 0, "No balance to withdraw for this team");
 
         if (status == GameStatus.Refunding) {
             // --- 退款模式 ---
-            // 无论你投的是谁，只要有钱，全额退回（不扣10%）
+            // 无论你投的是谁，只要有积分，全额退回（不扣10%）
             
             // 1. 修改状态（防重入）
-            userBets[msg.sender][_teamId] = 0;
+            userVotes[msg.sender][_teamId] = 0;
             
             // 2. 转账
             (bool success, ) = payable(msg.sender).call{value: amount}("");
@@ -101,17 +101,17 @@ contract CS2MajorBetting {
 
         } else if (status == GameStatus.Finished) {
             // --- 正常发奖模式 ---
-            // 只有投中冠军的人才能取钱
+            // 只有投中冠军的人才能获取奖励
             require(_teamId == winningTeamId, "This team did not win");
 
-            uint256 totalDistributableAmount = (totalPrizePool * 90) / 100;
-            uint256 totalBetOnWinner = teams[winningTeamId].totalBetAmount;
+            uint256 totalDistributableAmount = (totalRewardPool * 90) / 100;
+            uint256 totalVoteOnWinner = teams[winningTeamId].totalVoteAmount;
 
-            // 计算奖金
-            uint256 payout = (amount * totalDistributableAmount) / totalBetOnWinner;
+            // 计算奖励积分
+            uint256 payout = (amount * totalDistributableAmount) / totalVoteOnWinner;
 
             // 1. 修改状态
-            userBets[msg.sender][_teamId] = 0;
+            userVotes[msg.sender][_teamId] = 0;
 
             // 2. 转账
             (bool success, ) = payable(msg.sender).call{value: payout}("");
@@ -124,7 +124,7 @@ contract CS2MajorBetting {
         }
     }
 
-    // 5. 提取公益金
+    // 5. 提取积分
     function withdrawCharity() public onlyOwner {
         require(status == GameStatus.Finished, "Game not finished");
         require(charityBalance > 0, "No charity funds");
@@ -136,21 +136,21 @@ contract CS2MajorBetting {
         require(success, "Transfer failed");
     }
 
-    // 投注
-    function bet(uint256 _teamId) public payable {
-        require(status == GameStatus.Open, "Betting is closed");
+    // 投票
+    function vote(uint256 _teamId) public payable {
+        require(status == GameStatus.Open, "Voting is closed");
         require(_teamId < teams.length, "Invalid team");
         require(msg.value > 0, "Amount must be > 0");
 
-        if (userBets[msg.sender][_teamId] == 0) {
+        if (userVotes[msg.sender][_teamId] == 0) {
             teams[_teamId].supporterCount += 1;
         }
 
-        userBets[msg.sender][_teamId] += msg.value;
-        teams[_teamId].totalBetAmount += msg.value;
-        totalPrizePool += msg.value;
+        userVotes[msg.sender][_teamId] += msg.value;
+        teams[_teamId].totalVoteAmount += msg.value;
+        totalRewardPool += msg.value;
 
-        emit NewBet(msg.sender, _teamId, msg.value);
+        emit NewVote(msg.sender, _teamId, msg.value);
     }
     
     // View Helpers
